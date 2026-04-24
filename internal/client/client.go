@@ -90,17 +90,22 @@ func New(cfg *config.Config, opts ...Option) (*Client, error) {
 		o(c)
 	}
 	if c.cookiePath == "" {
-		c.cookiePath = defaultCookiePath()
+		path, err := defaultCookiePath()
+		if err != nil {
+			return nil, err
+		}
+		c.cookiePath = path
 	}
 	c.loadCookies()
 	return c, nil
 }
 
-func defaultCookiePath() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cache", "archery", "cookies.json")
+func defaultCookiePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine cookie cache path: %w (set $HOME or pass WithCookiePath)", err)
 	}
-	return filepath.Join(os.TempDir(), "archery-cookies.json")
+	return filepath.Join(home, ".cache", "archery", "cookies.json"), nil
 }
 
 func buildTLSConfig(cfg *config.Config) (*tls.Config, error) {

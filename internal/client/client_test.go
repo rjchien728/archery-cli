@@ -14,6 +14,13 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
+func TestDefaultCookiePath_NoHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	_, err := defaultCookiePath()
+	require.Error(t, err, "expected error when HOME is unavailable")
+	assert.Contains(t, err.Error(), "cookie cache path")
+}
+
 func TestClient_SaveCookies_Permissions(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cache")
 	path := filepath.Join(dir, "cookies.json")
