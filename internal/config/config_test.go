@@ -47,6 +47,32 @@ func TestConfig_ResolveDB(t *testing.T) {
 	}
 }
 
+func TestParseBoolEnv(t *testing.T) {
+	tests := []struct {
+		desc     string
+		input    string
+		expected bool
+	}{
+		{desc: "empty string is false", input: "", expected: false},
+		{desc: "\"1\" is true", input: "1", expected: true},
+		{desc: "\"0\" is false", input: "0", expected: false},
+		{desc: "\"true\" is true", input: "true", expected: true},
+		{desc: "\"TRUE\" is true", input: "TRUE", expected: true},
+		{desc: "\"True\" is true", input: "True", expected: true},
+		{desc: "\"false\" is false", input: "false", expected: false},
+		{desc: "\"t\" is true (strconv.ParseBool accepts single char)", input: "t", expected: true},
+		{desc: "\"f\" is false", input: "f", expected: false},
+		{desc: "unrecognized strings silently return false", input: "yes", expected: false},
+		{desc: "garbage returns false (no error surfaced)", input: "probably", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			assert.Equal(t, tt.expected, parseBoolEnv(tt.input))
+		})
+	}
+}
+
 func TestParseAliases(t *testing.T) {
 	tests := []struct {
 		desc     string
