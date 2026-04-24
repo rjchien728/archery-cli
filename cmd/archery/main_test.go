@@ -73,6 +73,14 @@ func TestFormatVersion(t *testing.T) {
 	develInfo := &debug.BuildInfo{
 		Main: debug.Module{Version: "(devel)"},
 	}
+	proxyInfo := &debug.BuildInfo{
+		Main: debug.Module{Version: "v0.2.1"},
+	}
+	commitOnlyInfo := &debug.BuildInfo{
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "abcdef1234567890"},
+		},
+	}
 
 	tests := []struct {
 		desc     string
@@ -98,18 +106,18 @@ func TestFormatVersion(t *testing.T) {
 			expected: "v0.2.1 (commit abcdef1, built 2026-04-25T10:30:00Z)",
 		},
 		{
-			desc: "all defaults without build info stays dev/none/unknown",
+			desc: "all defaults without build info yields bare dev",
 			ldV:  "dev", ldC: "none", ldD: "unknown",
 			info:     nil,
 			ok:       false,
-			expected: "dev (commit none, built unknown)",
+			expected: "dev",
 		},
 		{
 			desc: "devel main version does not override dev",
 			ldV:  "dev", ldC: "none", ldD: "unknown",
 			info:     develInfo,
 			ok:       true,
-			expected: "dev (commit none, built unknown)",
+			expected: "dev",
 		},
 		{
 			desc: "partial ldflags: version set, commit/date fill from build info",
@@ -117,6 +125,20 @@ func TestFormatVersion(t *testing.T) {
 			info:     vcsInfo,
 			ok:       true,
 			expected: "v1.0.0 (commit abcdef1, built 2026-04-25T10:30:00Z)",
+		},
+		{
+			desc: "go install from proxy: version only, no vcs → bare version",
+			ldV:  "dev", ldC: "none", ldD: "unknown",
+			info:     proxyInfo,
+			ok:       true,
+			expected: "v0.2.1",
+		},
+		{
+			desc: "commit only, no date → omit built segment",
+			ldV:  "dev", ldC: "none", ldD: "unknown",
+			info:     commitOnlyInfo,
+			ok:       true,
+			expected: "dev (commit abcdef1)",
 		},
 	}
 

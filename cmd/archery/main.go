@@ -301,7 +301,9 @@ func buildVersion(ldVersion, ldCommit, ldDate string) string {
 }
 
 // formatVersion is the pure helper behind buildVersion — ldflags values win
-// per-field; unset fields fall back to build info.
+// per-field; unset fields fall back to build info. Commit/date parenthesis is
+// omitted entirely when neither is known (e.g. `go install module@vX.Y.Z`,
+// where the module zip fetched from the proxy carries no VCS info).
 func formatVersion(ldVersion, ldCommit, ldDate string, info *debug.BuildInfo, ok bool) string {
 	v, c, d := ldVersion, ldCommit, ldDate
 	if ok && info != nil {
@@ -326,5 +328,15 @@ func formatVersion(ldVersion, ldCommit, ldDate string, info *debug.BuildInfo, ok
 			}
 		}
 	}
-	return fmt.Sprintf("%s (commit %s, built %s)", v, c, d)
+	var parts []string
+	if c != "none" {
+		parts = append(parts, "commit "+c)
+	}
+	if d != "unknown" {
+		parts = append(parts, "built "+d)
+	}
+	if len(parts) == 0 {
+		return v
+	}
+	return fmt.Sprintf("%s (%s)", v, strings.Join(parts, ", "))
 }
