@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -75,7 +76,7 @@ Meta commands (passed via -c):
   \d <table>    list columns of a table
   \?            this help`,
 		Args:          cobra.MaximumNArgs(1),
-		Version:       fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
+		Version:       buildVersion(version, commit, date),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -289,4 +290,41 @@ func b2i(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// buildVersion renders the --version string, consulting runtime/debug so
+// `go install module@vX.Y.Z` also yields a meaningful version when the
+// GoReleaser ldflags aren't applied.
+func buildVersion(ldVersion, ldCommit, ldDate string) string {
+	info, ok := debug.ReadBuildInfo()
+	return formatVersion(ldVersion, ldCommit, ldDate, info, ok)
+}
+
+// formatVersion is the pure helper behind buildVersion — ldflags values win
+// per-field; unset fields fall back to build info.
+func formatVersion(ldVersion, ldCommit, ldDate string, info *debug.BuildInfo, ok bool) string {
+	v, c, d := ldVersion, ldCommit, ldDate
+	if ok && info != nil {
+		if v == "dev" {
+			if mv := info.Main.Version; mv != "" && mv != "(devel)" {
+				v = mv
+			}
+		}
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				if c == "none" && s.Value != "" {
+					c = s.Value
+					if len(c) > 7 {
+						c = c[:7]
+					}
+				}
+			case "vcs.time":
+				if d == "unknown" && s.Value != "" {
+					d = s.Value
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("%s (commit %s, built %s)", v, c, d)
 }
