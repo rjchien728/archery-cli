@@ -86,7 +86,15 @@ Meta commands (passed via -c):
 				cfg.Username = usernameFlag
 			}
 			if passwordFlag != "" {
+				fmt.Fprintln(os.Stderr, "archery: warning: --password is deprecated; prefer ARCHERY_PASSWORD env var or the interactive TTY prompt (password visible in 'ps' and shell history)")
 				cfg.Password = passwordFlag
+			}
+			if cfg.Password == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+				pw, err := readPasswordTTY("Archery password: ")
+				if err != nil {
+					return err
+				}
+				cfg.Password = pw
 			}
 			if err := cfg.Validate(); err != nil {
 				return usageError(err.Error())
@@ -167,7 +175,7 @@ Meta commands (passed via -c):
 	f.StringVar(&endpointFlag, "endpoint", "", "Archery URL (overrides ARCHERY_URL)")
 	f.StringVar(&instanceFlag, "instance", "", "instance name (overrides ARCHERY_INSTANCE)")
 	f.StringVar(&usernameFlag, "username", "", "username (overrides ARCHERY_USERNAME)")
-	f.StringVar(&passwordFlag, "password", "", "password (overrides ARCHERY_PASSWORD)")
+	f.StringVar(&passwordFlag, "password", "", "password (DEPRECATED; prefer ARCHERY_PASSWORD or TTY prompt)")
 	f.StringVar(&schemaFlag, "schema", "public", "schema name")
 	f.StringVarP(&sqlFlag, "command", "c", "", "SQL or meta command to execute")
 	f.StringVarP(&fileFlag, "file", "f", "", "read SQL from file ('-' = stdin)")
@@ -182,6 +190,16 @@ Meta commands (passed via -c):
 		fmt.Fprintln(os.Stderr, "archery: "+err.Error())
 		os.Exit(exitCodeFor(err))
 	}
+}
+
+func readPasswordTTY(prompt string) (string, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", fmt.Errorf("read password: %w", err)
+	}
+	return string(pw), nil
 }
 
 func readSQL(cmdFlag, fileFlag string) (string, error) {
