@@ -43,6 +43,8 @@ func main() {
 		formatJSON   bool
 		formatExpand bool
 		verbose      bool
+		insecureFlag bool
+		cacertFlag   string
 	)
 
 	rootCmd := &cobra.Command{
@@ -58,6 +60,8 @@ Required configuration (env or flag):
 
 Optional:
   ARCHERY_ALIASES   comma-separated short=full pairs, e.g. prod=db_orders_prod,stg=db_orders_stg
+  ARCHERY_INSECURE  1/true to skip TLS certificate verification (unsafe)
+  ARCHERY_CACERT    path to a PEM file with extra trusted CA certificates
 
 SQL source precedence: -c > -f > stdin (when not a TTY).
 
@@ -88,6 +92,12 @@ Meta commands (passed via -c):
 			if passwordFlag != "" {
 				fmt.Fprintln(os.Stderr, "archery: warning: --password is deprecated; prefer ARCHERY_PASSWORD env var or the interactive TTY prompt (password visible in 'ps' and shell history)")
 				cfg.Password = passwordFlag
+			}
+			if insecureFlag {
+				cfg.Insecure = true
+			}
+			if cacertFlag != "" {
+				cfg.CACertPath = cacertFlag
 			}
 			if cfg.Password == "" && term.IsTerminal(int(os.Stdin.Fd())) {
 				pw, err := readPasswordTTY("Archery password: ")
@@ -185,6 +195,8 @@ Meta commands (passed via -c):
 	f.BoolVar(&formatJSON, "json", false, "output JSON")
 	f.BoolVarP(&formatExpand, "expanded", "x", false, "expanded display (one column per line)")
 	f.BoolVarP(&verbose, "verbose", "v", false, "log progress to stderr")
+	f.BoolVarP(&insecureFlag, "insecure", "k", false, "skip TLS certificate verification (unsafe; for MITM-free internal networks only)")
+	f.StringVar(&cacertFlag, "cacert", "", "path to PEM file with extra trusted CA certificates")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "archery: "+err.Error())

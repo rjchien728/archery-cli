@@ -42,8 +42,10 @@ Set these environment variables (typically in your shell profile or a `.env`):
 | `ARCHERY_USERNAME` | yes | Login username |
 | `ARCHERY_PASSWORD` | yes | Login password |
 | `ARCHERY_ALIASES` | no | Comma-separated `short=full` pairs, e.g. `prod=db_orders_prod,stg=db_orders_stg` |
+| `ARCHERY_INSECURE` | no | `1`/`true` to skip TLS certificate verification (unsafe — MITM risk) |
+| `ARCHERY_CACERT` | no | Path to a PEM file with extra trusted CA certificates (for internal/private CAs) |
 
-Flags override env: `--endpoint`, `--instance`, `--username`, `--password`.
+Flags override env: `--endpoint`, `--instance`, `--username`, `--password`, `--insecure`/`-k`, `--cacert`.
 
 The first time you run `archery`, it logs in via Archery's standard Django session flow and caches cookies at `~/.cache/archery/cookies.txt` (mode `0600`). Subsequent calls reuse the session; if it expires, the CLI re-logs in transparently.
 
@@ -135,6 +137,8 @@ archery [<db> | -d <db>]
         [--schema <name>]       # default 'public'
         [--max-col-width <n>]   # default 60
         [-v]                    # verbose to stderr
+        [--insecure | -k]       # skip TLS verification (unsafe)
+        [--cacert <file>]       # trust additional CA certificates
 
 Meta commands (passed via -c):
   \l            list databases

@@ -4,26 +4,42 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Endpoint string
-	Instance string
-	Username string
-	Password string
-	Aliases  map[string]string
+	Endpoint   string
+	Instance   string
+	Username   string
+	Password   string
+	Aliases    map[string]string
+	Insecure   bool
+	CACertPath string
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		Endpoint: os.Getenv("ARCHERY_URL"),
-		Instance: os.Getenv("ARCHERY_INSTANCE"),
-		Username: os.Getenv("ARCHERY_USERNAME"),
-		Password: os.Getenv("ARCHERY_PASSWORD"),
-		Aliases:  parseAliases(os.Getenv("ARCHERY_ALIASES")),
+		Endpoint:   os.Getenv("ARCHERY_URL"),
+		Instance:   os.Getenv("ARCHERY_INSTANCE"),
+		Username:   os.Getenv("ARCHERY_USERNAME"),
+		Password:   os.Getenv("ARCHERY_PASSWORD"),
+		Aliases:    parseAliases(os.Getenv("ARCHERY_ALIASES")),
+		Insecure:   parseBoolEnv(os.Getenv("ARCHERY_INSECURE")),
+		CACertPath: os.Getenv("ARCHERY_CACERT"),
 	}
 	return cfg, nil
+}
+
+func parseBoolEnv(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+	return b
 }
 
 func (c *Config) Validate() error {

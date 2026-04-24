@@ -31,6 +31,8 @@ The user must have these env vars set before `archery` can authenticate:
 
 If a command fails with an authentication error, stop and ask the user to configure the above — do not guess credentials or endpoints.
 
+If a command fails with a TLS certificate error, stop and tell the user. They can configure `ARCHERY_CACERT=<path-to-pem>` (preferred, for private CAs) or `ARCHERY_INSECURE=1` (last resort, unsafe). Do not add `--insecure` or `--cacert` to queries yourself — these are user-owned trust decisions.
+
 ## When to use this skill
 
 Proactively reach for `archery` whenever the user's question implies looking at real data ("how many X", "which rows", "what's in table Y", "give me the schema of Z"). If the user has multiple databases configured and the question is ambiguous about which one, ask before querying.

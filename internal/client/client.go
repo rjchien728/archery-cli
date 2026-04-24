@@ -2,6 +2,7 @@ package client
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,8 +56,12 @@ func New(cfg *config.Config, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("bad ARCHERY_URL: %w", err)
 	}
 
+	tlsCfg, err := buildTLSConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{},
+		TLSClientConfig:       tlsCfg,
 		ResponseHeaderTimeout: defaultTimeout,
 	}
 	if err := setProxy(tr); err != nil {
@@ -96,6 +101,30 @@ func defaultCookiePath() string {
 		return filepath.Join(home, ".cache", "archery", "cookies.json")
 	}
 	return filepath.Join(os.TempDir(), "archery-cookies.json")
+}
+
+func buildTLSConfig(cfg *config.Config) (*tls.Config, error) {
+	tlsCfg := &tls.Config{}
+	if cfg.Insecure {
+		tlsCfg.InsecureSkipVerify = true
+		fmt.Fprintln(os.Stderr, "archery: warning: TLS certificate verification disabled (--insecure / ARCHERY_INSECURE); vulnerable to MITM")
+		if cfg.CACertPath != "" {
+			fmt.Fprintln(os.Stderr, "archery: warning: --cacert / ARCHERY_CACERT ignored because --insecure is set")
+		}
+		return tlsCfg, nil
+	}
+	if cfg.CACertPath != "" {
+		pem, err := os.ReadFile(cfg.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("read --cacert file %q: %w", cfg.CACertPath, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("--cacert file %q contains no valid PEM certificates", cfg.CACertPath)
+		}
+		tlsCfg.RootCAs = pool
+	}
+	return tlsCfg, nil
 }
 
 func setProxy(tr *http.Transport) error {
