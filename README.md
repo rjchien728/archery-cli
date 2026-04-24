@@ -40,12 +40,12 @@ Set these environment variables (typically in your shell profile or a `.env`):
 | `ARCHERY_URL` | yes | Base URL, e.g. `https://archery.example.com` |
 | `ARCHERY_INSTANCE` | yes | Instance name as configured in Archery |
 | `ARCHERY_USERNAME` | yes | Login username |
-| `ARCHERY_PASSWORD` | yes | Login password |
+| `ARCHERY_PASSWORD` | yes* | Login password. *If unset, `archery` prompts on `/dev/tty` (works even when stdin is piped). Required when running in non-interactive contexts (CI, containers). |
 | `ARCHERY_ALIASES` | no | Comma-separated `short=full` pairs, e.g. `prod=db_orders_prod,stg=db_orders_stg` |
 | `ARCHERY_INSECURE` | no | `1`/`true` to skip TLS certificate verification (unsafe — MITM risk) |
 | `ARCHERY_CACERT` | no | Path to a PEM file with extra trusted CA certificates (for internal/private CAs) |
 
-Flags override env: `--endpoint`, `--instance`, `--username`, `--password`, `--insecure`/`-k`, `--cacert`.
+Flags override env: `--endpoint`, `--instance`, `--username`, `--insecure`/`-k`, `--cacert`. There is no `--password` flag by design — credentials never go through argv where they'd appear in `ps` and shell history.
 
 The first time you run `archery`, it logs in via Archery's standard Django session flow and caches cookies at `~/.cache/archery/cookies.txt` (mode `0600`). Subsequent calls reuse the session; if it expires, the CLI re-logs in transparently.
 

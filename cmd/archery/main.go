@@ -33,7 +33,6 @@ func main() {
 		endpointFlag string
 		instanceFlag string
 		usernameFlag string
-		passwordFlag string
 		schemaFlag   string
 		sqlFlag      string
 		fileFlag     string
@@ -56,7 +55,7 @@ Required configuration (env or flag):
   ARCHERY_URL       https://archery.example.com
   ARCHERY_INSTANCE  the instance name configured in Archery
   ARCHERY_USERNAME  login username
-  ARCHERY_PASSWORD  login password
+  ARCHERY_PASSWORD  login password (when unset, archery prompts on /dev/tty)
 
 Optional:
   ARCHERY_ALIASES   comma-separated short=full pairs, e.g. prod=db_orders_prod,stg=db_orders_stg
@@ -89,17 +88,13 @@ Meta commands (passed via -c):
 			if usernameFlag != "" {
 				cfg.Username = usernameFlag
 			}
-			if passwordFlag != "" {
-				fmt.Fprintln(os.Stderr, "archery: warning: --password is deprecated; prefer ARCHERY_PASSWORD env var or the interactive TTY prompt (password visible in 'ps' and shell history)")
-				cfg.Password = passwordFlag
-			}
 			if insecureFlag {
 				cfg.Insecure = true
 			}
 			if cacertFlag != "" {
 				cfg.CACertPath = cacertFlag
 			}
-			if cfg.Password == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+			if cfg.Password == "" {
 				pw, err := readPasswordTTY("Archery password: ")
 				if err != nil {
 					return err
@@ -185,7 +180,6 @@ Meta commands (passed via -c):
 	f.StringVar(&endpointFlag, "endpoint", "", "Archery URL (overrides ARCHERY_URL)")
 	f.StringVar(&instanceFlag, "instance", "", "instance name (overrides ARCHERY_INSTANCE)")
 	f.StringVar(&usernameFlag, "username", "", "username (overrides ARCHERY_USERNAME)")
-	f.StringVar(&passwordFlag, "password", "", "password (DEPRECATED; prefer ARCHERY_PASSWORD or TTY prompt)")
 	f.StringVar(&schemaFlag, "schema", "public", "schema name")
 	f.StringVarP(&sqlFlag, "command", "c", "", "SQL or meta command to execute")
 	f.StringVarP(&fileFlag, "file", "f", "", "read SQL from file ('-' = stdin)")
@@ -205,9 +199,14 @@ Meta commands (passed via -c):
 }
 
 func readPasswordTTY(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return "", fmt.Errorf("no terminal available for password prompt: %w (set ARCHERY_PASSWORD)", err)
+	}
+	defer tty.Close()
+	fmt.Fprint(tty, prompt)
+	pw, err := term.ReadPassword(int(tty.Fd()))
+	fmt.Fprintln(tty)
 	if err != nil {
 		return "", fmt.Errorf("read password: %w", err)
 	}
