@@ -31,6 +31,8 @@ The user must have these env vars set before `archery` can authenticate:
 
 If a command fails with an authentication error, stop and ask the user to configure the above — do not guess credentials or endpoints.
 
+If `ARCHERY_PASSWORD` is not set, `archery` prompts for it on `/dev/tty`. In AI tool contexts that don't forward `/dev/tty` you'll see either an apparent "hang" (the user is being prompted on their terminal but you can't see it) or `no terminal available for password prompt`. In both cases, stop and ask the user to `export ARCHERY_PASSWORD=...` before retrying — do not attempt to supply a password yourself.
+
 If a command fails with a TLS certificate error, stop and tell the user. They can configure `ARCHERY_CACERT=<path-to-pem>` (preferred, for private CAs) or `ARCHERY_INSECURE=1` (last resort, unsafe). Do not add `--insecure` or `--cacert` to queries yourself — these are user-owned trust decisions.
 
 ## When to use this skill

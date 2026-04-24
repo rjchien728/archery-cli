@@ -47,7 +47,7 @@ Set these environment variables (typically in your shell profile or a `.env`):
 
 Flags override env: `--endpoint`, `--instance`, `--username`, `--insecure`/`-k`, `--cacert`. There is no `--password` flag by design — credentials never go through argv where they'd appear in `ps` and shell history.
 
-The first time you run `archery`, it logs in via Archery's standard Django session flow and caches cookies at `~/.cache/archery/cookies.txt` (mode `0600`). Subsequent calls reuse the session; if it expires, the CLI re-logs in transparently.
+The first time you run `archery`, it logs in via Archery's standard Django session flow and caches cookies at `~/.cache/archery/cookies.json` (mode `0600`). Subsequent calls reuse the session; if it expires, the CLI re-logs in transparently.
 
 ---
 

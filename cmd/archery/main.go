@@ -57,6 +57,10 @@ Required configuration (env or flag):
   ARCHERY_USERNAME  login username
   ARCHERY_PASSWORD  login password (when unset, archery prompts on /dev/tty)
 
+There is no --password flag by design: credentials must come from
+ARCHERY_PASSWORD or the /dev/tty prompt, never argv (where they'd leak
+into 'ps' output and shell history).
+
 Optional:
   ARCHERY_ALIASES   comma-separated short=full pairs, e.g. prod=db_orders_prod,stg=db_orders_stg
   ARCHERY_INSECURE  1/true to skip TLS certificate verification (unsafe)
