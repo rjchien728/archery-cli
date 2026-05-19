@@ -33,6 +33,19 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+brews:
+  - name: archery
+    repository:
+      owner: rjchien728
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/rjchien728/archery-cli"
+    description: "psql-style CLI for Archery SQL audit platform (SELECT-only)"
+    license: "MIT"
+    test: |
+      system "#{bin}/archery", "--version"
+
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 

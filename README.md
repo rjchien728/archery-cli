@@ -25,6 +25,14 @@ Only `SELECT` is supported (Archery itself blocks DML/DDL on the `/query/` endpo
 
 ## Install
 
+**Homebrew (macOS / Linux):**
+
+```bash
+brew install rjchien728/tap/archery
+```
+
+**Go:**
+
 ```bash
 go install github.com/rjchien728/archery-cli/cmd/archery@latest
 ```
