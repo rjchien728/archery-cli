@@ -53,9 +53,10 @@ func (c *Config) Validate() error {
 	if c.Username == "" {
 		missing = append(missing, "ARCHERY_USERNAME")
 	}
-	if c.Password == "" {
-		missing = append(missing, "ARCHERY_PASSWORD")
-	}
+	// Password is intentionally not required here: with a valid cached session
+	// the CLI never logs in, so it must not force ARCHERY_PASSWORD or a /dev/tty
+	// prompt. It is obtained lazily in client.Login when a login is actually
+	// needed (see client.WithPasswordFunc).
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config: %s\n\nExample:\n  export ARCHERY_URL=https://archery.example.com\n  export ARCHERY_INSTANCE=my-instance\n  export ARCHERY_USERNAME=alice\n  export ARCHERY_PASSWORD=secret",
 			strings.Join(missing, ", "))

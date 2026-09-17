@@ -90,7 +90,7 @@ func (wf *workflowFlags) connect() (*client.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	opts := []client.Option{}
+	opts := []client.Option{passwordPrompt()}
 	if wf.verbose {
 		opts = append(opts, client.WithVerbose(os.Stderr))
 	}
@@ -166,12 +166,21 @@ func newWorkflowCheckCmd(wf *workflowFlags) *cobra.Command {
 				return err
 			}
 			cols, rows := sqlRowsTable(res.Rows)
-			return wf.render(cols, rows, map[string]any{
+			if err := wf.render(cols, rows, map[string]any{
 				"error_count":   res.ErrorCount,
 				"warning_count": res.WarningCount,
 				"syntax_type":   res.SyntaxType,
 				"is_critical":   res.IsCritical,
-			})
+			}); err != nil {
+				return err
+			}
+			// A failed audit exits non-zero so `check && submit` can gate on it;
+			// the table above still prints, so the caller sees why. Warnings alone
+			// do not fail — archery lets those through too.
+			if res.ErrorCount > 0 || res.IsCritical {
+				return fmt.Errorf("audit failed: %d error(s), is_critical=%v", res.ErrorCount, res.IsCritical)
+			}
+			return nil
 		},
 	}
 }

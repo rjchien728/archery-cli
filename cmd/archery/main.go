@@ -56,7 +56,8 @@ Required configuration (env or flag):
   ARCHERY_URL       https://archery.example.com
   ARCHERY_INSTANCE  the instance name configured in Archery
   ARCHERY_USERNAME  login username
-  ARCHERY_PASSWORD  login password (when unset, archery prompts on /dev/tty)
+  ARCHERY_PASSWORD  login password (when unset, archery prompts on /dev/tty,
+                    and only when a login is actually needed)
 
 There is no --password flag by design: credentials must come from
 ARCHERY_PASSWORD or the /dev/tty prompt, never argv (where they'd leak
@@ -111,7 +112,7 @@ Meta commands (passed via -c):
 			if verbose {
 				verboseW = os.Stderr
 			}
-			opts := []client.Option{}
+			opts := []client.Option{passwordPrompt()}
 			if verboseW != nil {
 				opts = append(opts, client.WithVerbose(verboseW))
 			}
@@ -202,17 +203,18 @@ func resolveConfig(endpoint, instance, username, cacert string, insecure bool) (
 	if cacert != "" {
 		cfg.CACertPath = cacert
 	}
-	if cfg.Password == "" {
-		pw, err := readPasswordTTY("Archery password: ")
-		if err != nil {
-			return nil, err
-		}
-		cfg.Password = pw
-	}
 	if err := cfg.Validate(); err != nil {
 		return nil, usageError(err.Error())
 	}
 	return cfg, nil
+}
+
+// passwordPrompt hands the client a callback it invokes only when a login is
+// actually needed, so a valid cached session never triggers a /dev/tty prompt.
+func passwordPrompt() client.Option {
+	return client.WithPasswordFunc(func() (string, error) {
+		return readPasswordTTY("Archery password: ")
+	})
 }
 
 func readPasswordTTY(prompt string) (string, error) {

@@ -28,6 +28,16 @@ func (c *Client) Login() error {
 		return fmt.Errorf("login: no csrftoken cookie set by /login/; endpoint may not be a hhyo/Archery instance")
 	}
 
+	// Obtain the password only now that a login is unavoidable: a cached session
+	// short-circuits before ever reaching here, so read paths do not prompt.
+	if c.cfg.Password == "" && c.passwordFunc != nil {
+		pw, err := c.passwordFunc()
+		if err != nil {
+			return err
+		}
+		c.cfg.Password = pw
+	}
+
 	form := url.Values{
 		"username": {c.cfg.Username},
 		"password": {c.cfg.Password},

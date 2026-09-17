@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -89,6 +92,52 @@ func TestWorkflowArgValidationFailsOffline(t *testing.T) {
 			err := cmd.Execute()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+// check must exit non-zero when archery's audit reports errors, so a scripted
+// `check && submit` gates on the result instead of always proceeding.
+func TestCheckCommandExitCodeOnAuditResult(t *testing.T) {
+	tests := []struct {
+		desc    string
+		body    string
+		wantErr bool
+	}{
+		{desc: "errors fail", body: `{"error_count":1,"warning_count":0,"is_critical":false,"rows":[]}`, wantErr: true},
+		{desc: "is_critical fails", body: `{"error_count":0,"warning_count":0,"is_critical":true,"rows":[]}`, wantErr: true},
+		{desc: "warnings alone pass", body: `{"error_count":0,"warning_count":2,"is_critical":false,"rows":[]}`, wantErr: false},
+		{desc: "clean audit passes", body: `{"error_count":0,"warning_count":0,"is_critical":false,"rows":[]}`, wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/v1/workflow/sqlcheck/", r.URL.Path)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+
+			// HOME points at a temp dir so the cookie cache stays out of the real
+			// home. Numeric --instance/--group skip name resolution, so sqlcheck is
+			// the only endpoint touched.
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("ARCHERY_URL", srv.URL)
+			t.Setenv("ARCHERY_INSTANCE", "20")
+			t.Setenv("ARCHERY_USERNAME", "u")
+			t.Setenv("ARCHERY_PASSWORD", "p")
+
+			cmd := newWorkflowCmd()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs([]string{"check", "--instance", "20", "--group", "6", "-d", "db", "-c", "UPDATE t SET a=1"})
+			err := cmd.Execute()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "audit failed")
+				assert.Equal(t, 1, exitCodeFor(err), "a failed audit is a generic failure")
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

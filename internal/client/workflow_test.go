@@ -495,6 +495,30 @@ func TestInstancesSurfacesEnvelopeError(t *testing.T) {
 	assert.Contains(t, se.Msg, "无权操作")
 }
 
+func TestLoginFetchesPasswordLazily(t *testing.T) {
+	calls := 0
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login/":
+			http.SetCookie(w, &http.Cookie{Name: "csrftoken", Value: "t", Path: "/"})
+		case "/authenticate/":
+			require.NoError(t, r.ParseForm())
+			assert.Equal(t, "prompted-pw", r.PostForm.Get("password"), "Login must use the value the callback returned")
+			http.SetCookie(w, &http.Cookie{Name: "sessionid", Value: "s", Path: "/"})
+			_, _ = io.WriteString(w, `{"status":0,"msg":"ok","data":null}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	})
+	// No password up front: the callback is the only source, and it must be
+	// invoked exactly when a login happens.
+	c.cfg.Password = ""
+	c.passwordFunc = func() (string, error) { calls++; return "prompted-pw", nil }
+
+	require.NoError(t, c.Login())
+	assert.Equal(t, 1, calls, "the password callback runs once, only because a login occurred")
+}
+
 func TestStatusAndLogDecode(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

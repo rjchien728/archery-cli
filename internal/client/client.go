@@ -31,12 +31,13 @@ const (
 var ErrAuthFailed = errors.New("auth failed; check ARCHERY_USERNAME / ARCHERY_PASSWORD")
 
 type Client struct {
-	cfg        *config.Config
-	httpc      *http.Client
-	jar        *cookiejar.Jar
-	endpoint   *url.URL
-	cookiePath string
-	verbose    io.Writer
+	cfg          *config.Config
+	httpc        *http.Client
+	jar          *cookiejar.Jar
+	endpoint     *url.URL
+	cookiePath   string
+	verbose      io.Writer
+	passwordFunc func() (string, error)
 
 	// Resolved for the life of the Client: archery exposes no API for the
 	// group list, so re-deriving it per call would mean re-scraping a page.
@@ -53,6 +54,13 @@ func WithVerbose(w io.Writer) Option {
 
 func WithCookiePath(p string) Option {
 	return func(c *Client) { c.cookiePath = p }
+}
+
+// WithPasswordFunc supplies a callback that yields the password, invoked lazily
+// by Login only when a login actually happens (i.e. no valid cached session).
+// Without it Login falls back to cfg.Password (e.g. ARCHERY_PASSWORD).
+func WithPasswordFunc(f func() (string, error)) Option {
+	return func(c *Client) { c.passwordFunc = f }
 }
 
 func New(cfg *config.Config, opts ...Option) (*Client, error) {
