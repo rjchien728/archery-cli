@@ -2,10 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -81,7 +85,7 @@ func TestWorkflowArgValidationFailsOffline(t *testing.T) {
 			// These must all fail on their arguments. Pointing at a closed port
 			// keeps a regression loud and fast instead of hanging on a real host.
 			t.Setenv("ARCHERY_URL", "http://127.0.0.1:1")
-			t.Setenv("ARCHERY_INSTANCE", "unused")
+			t.Setenv("ARCHERY_INSTANCE", "") // no command here resolves a target
 			t.Setenv("ARCHERY_USERNAME", "unused")
 			t.Setenv("ARCHERY_PASSWORD", "unused")
 
@@ -158,4 +162,166 @@ func TestRootStillAcceptsPositionalDatabase(t *testing.T) {
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	assert.NoError(t, root.Execute(), "a db name that is not a subcommand must still reach the root command")
+}
+
+// The lazy password prompt only pays off if cmd actually hands the client its
+// callback. Without this, dropping passwordPrompt() from the option lists
+// compiles, passes every other test, and silently sends an empty password.
+func TestPasswordPromptWiring(t *testing.T) {
+	tests := []struct {
+		desc        string
+		cachedLogin bool
+		wantPrompts int
+	}{
+		{desc: "a valid cached session never asks for a password", cachedLogin: true, wantPrompts: 0},
+		{desc: "no session asks once, via the injected callback", cachedLogin: false, wantPrompts: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			authenticated := tt.cachedLogin
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/login/":
+					http.SetCookie(w, &http.Cookie{Name: "csrftoken", Value: "t", Path: "/"})
+				case "/authenticate/":
+					assert.Equal(t, "prompted-pw", r.FormValue("password"), "the password must come from the callback")
+					authenticated = true
+					http.SetCookie(w, &http.Cookie{Name: "sessionid", Value: "s", Path: "/"})
+					_, _ = io.WriteString(w, `{"status":0,"msg":"ok","data":null}`)
+				case "/api/v1/workflow/sqlcheck/":
+					if !authenticated {
+						w.WriteHeader(http.StatusForbidden)
+						return
+					}
+					_, _ = io.WriteString(w, `{"error_count":0,"warning_count":0,"is_critical":false,"rows":[]}`)
+				default:
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+
+			home := t.TempDir()
+			if tt.cachedLogin {
+				writeCookieCache(t, home)
+			}
+			t.Setenv("HOME", home)
+			t.Setenv("ARCHERY_URL", srv.URL)
+			t.Setenv("ARCHERY_INSTANCE", "20")
+			t.Setenv("ARCHERY_USERNAME", "u")
+			t.Setenv("ARCHERY_PASSWORD", "") // the callback is the only source
+
+			prompts := 0
+			original := promptPassword
+			promptPassword = func() (string, error) { prompts++; return "prompted-pw", nil }
+			t.Cleanup(func() { promptPassword = original })
+
+			cmd := newWorkflowCmd()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs([]string{"check", "--instance", "20", "--group", "6", "-d", "db", "-c", "UPDATE t SET a=1"})
+			require.NoError(t, cmd.Execute())
+
+			assert.Equal(t, tt.wantPrompts, prompts)
+		})
+	}
+}
+
+// writeCookieCache seeds the on-disk session the client loads at startup, in the
+// shape saveCookies writes.
+func writeCookieCache(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".cache", "archery")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	cookies := []map[string]any{
+		{"name": "sessionid", "value": "s", "path": "/", "expires": time.Now().Add(time.Hour)},
+		{"name": "csrftoken", "value": "t", "path": "/"},
+	}
+	blob, err := json.Marshal(cookies)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cookies.json"), blob, 0o600))
+}
+
+// A subcommand must advertise only the flags it reads. The id-addressed ones act
+// on a workflow that already exists, so naming a target means nothing to them —
+// and a flag that is accepted but ignored is worse than one that is rejected.
+func TestSubcommandsAdvertiseOnlyTheFlagsTheyRead(t *testing.T) {
+	targetFlags := []string{"instance", "group"}
+	sqlFlags := []string{"database", "command", "file"}
+
+	want := map[string]struct{ target, sql bool }{
+		"check":   {target: true, sql: true},
+		"submit":  {target: true, sql: true},
+		"list":    {target: true, sql: false},
+		"show":    {target: false, sql: false},
+		"log":     {target: false, sql: false},
+		"status":  {target: false, sql: false},
+		"approve": {target: false, sql: false},
+		"cancel":  {target: false, sql: false},
+		"execute": {target: false, sql: false},
+	}
+
+	root := newWorkflowCmd()
+	for _, sub := range root.Commands() {
+		expect, known := want[sub.Name()]
+		require.True(t, known, "unlisted subcommand %q — add it to this table", sub.Name())
+
+		t.Run(sub.Name(), func(t *testing.T) {
+			has := func(name string) bool {
+				return sub.Flags().Lookup(name) != nil || sub.InheritedFlags().Lookup(name) != nil
+			}
+			for _, f := range targetFlags {
+				assert.Equal(t, expect.target, has(f), "--%s on %q", f, sub.Name())
+			}
+			for _, f := range sqlFlags {
+				assert.Equal(t, expect.sql, has(f), "--%s on %q", f, sub.Name())
+			}
+			// Connection and output flags stay shared by all of them.
+			for _, f := range []string{"endpoint", "username", "json", "csv", "verbose"} {
+				assert.True(t, has(f), "--%s must stay shared, missing on %q", f, sub.Name())
+			}
+		})
+	}
+}
+
+// Commands addressed by a workflow id never resolve an instance, so they must
+// run without ARCHERY_INSTANCE. Commands that name a target must say so plainly.
+func TestInstanceIsRequiredOnlyWhereItIsUsed(t *testing.T) {
+	t.Run("approve works with no instance configured", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/passed/", r.URL.Path)
+			w.Header().Set("Location", "/detail/900/")
+			w.WriteHeader(http.StatusFound)
+		}))
+		defer srv.Close()
+
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("ARCHERY_URL", srv.URL)
+		t.Setenv("ARCHERY_INSTANCE", "")
+		t.Setenv("ARCHERY_USERNAME", "u")
+		t.Setenv("ARCHERY_PASSWORD", "p")
+
+		cmd := newWorkflowCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"approve", "900"})
+		require.NoError(t, cmd.Execute())
+	})
+
+	t.Run("check without an instance is a usage error", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("ARCHERY_URL", "http://127.0.0.1:1")
+		t.Setenv("ARCHERY_INSTANCE", "")
+		t.Setenv("ARCHERY_USERNAME", "u")
+		t.Setenv("ARCHERY_PASSWORD", "p")
+
+		cmd := newWorkflowCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"check", "-d", "db", "-c", "UPDATE t SET a=1"})
+		err := cmd.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing instance")
+		assert.Equal(t, 2, exitCodeFor(err))
+	})
 }

@@ -85,6 +85,9 @@ Meta commands (passed via -c):
 			if err != nil {
 				return err
 			}
+			if err := cfg.RequireInstance(); err != nil {
+				return usageError(err.Error())
+			}
 
 			var dbInput string
 			switch {
@@ -209,12 +212,17 @@ func resolveConfig(endpoint, instance, username, cacert string, insecure bool) (
 	return cfg, nil
 }
 
+// promptPassword is the only place a password is asked for interactively. It is
+// a variable so tests can observe whether it was reached at all: the point of
+// the lazy prompt is that a cached session never gets here.
+var promptPassword = func() (string, error) {
+	return readPasswordTTY("Archery password: ")
+}
+
 // passwordPrompt hands the client a callback it invokes only when a login is
 // actually needed, so a valid cached session never triggers a /dev/tty prompt.
 func passwordPrompt() client.Option {
-	return client.WithPasswordFunc(func() (string, error) {
-		return readPasswordTTY("Archery password: ")
-	})
+	return client.WithPasswordFunc(func() (string, error) { return promptPassword() })
 }
 
 func readPasswordTTY(prompt string) (string, error) {

@@ -53,14 +53,12 @@ passed as -d workflow.`,
 		SilenceErrors: true,
 	}
 
+	// Only connection and output flags are shared. What a command acts on
+	// (--instance, --group, -d, -c, -f) is registered per subcommand, so the
+	// id-addressed ones do not advertise flags they never read.
 	p := cmd.PersistentFlags()
 	p.StringVar(&wf.endpoint, "endpoint", "", "Archery URL (overrides ARCHERY_URL)")
-	p.StringVar(&wf.instance, "instance", "", "instance name or id (overrides ARCHERY_INSTANCE)")
 	p.StringVar(&wf.username, "username", "", "username (overrides ARCHERY_USERNAME)")
-	p.StringVar(&wf.group, "group", "", "resource group name or id (default: the only group holding the instance)")
-	p.StringVarP(&wf.database, "database", "d", "", "database (alias or full name)")
-	p.StringVarP(&wf.sql, "command", "c", "", "SQL to submit or check")
-	p.StringVarP(&wf.file, "file", "f", "", "read SQL from file ('-' = stdin)")
 	p.BoolVarP(&wf.insecure, "insecure", "k", false, "skip TLS certificate verification (unsafe; for MITM-free internal networks only)")
 	p.StringVar(&wf.cacert, "cacert", "", "path to PEM file with extra trusted CA certificates")
 	p.BoolVarP(&wf.verbose, "verbose", "v", false, "log progress to stderr")
@@ -83,6 +81,19 @@ passed as -d workflow.`,
 	return cmd
 }
 
+// addTargetFlags registers the flags naming what a command acts on. withSQL adds
+// the statement source, which only check and submit need.
+func (wf *workflowFlags) addTargetFlags(cmd *cobra.Command, withSQL bool) {
+	f := cmd.Flags()
+	f.StringVar(&wf.instance, "instance", "", "instance name or id (overrides ARCHERY_INSTANCE)")
+	f.StringVar(&wf.group, "group", "", "resource group name or id (default: the only group holding the instance)")
+	if withSQL {
+		f.StringVarP(&wf.database, "database", "d", "", "database (alias or full name)")
+		f.StringVarP(&wf.sql, "command", "c", "", "SQL to submit or check")
+		f.StringVarP(&wf.file, "file", "f", "", "read SQL from file ('-' = stdin)")
+	}
+}
+
 // connect builds a client from the workflow flags plus the environment, and
 // resolves -d through the configured aliases the same way the query path does.
 func (wf *workflowFlags) connect() (*client.Client, string, error) {
@@ -103,8 +114,12 @@ func (wf *workflowFlags) connect() (*client.Client, string, error) {
 }
 
 // target resolves the instance/group pair the workflow endpoints need. The
-// instance is whatever --instance or ARCHERY_INSTANCE settled on.
+// instance is whatever --instance or ARCHERY_INSTANCE settled on; only the
+// commands that reach here require one at all.
 func (wf *workflowFlags) target(c *client.Client) (*client.Target, error) {
+	if c.Instance() == "" {
+		return nil, usageError("missing instance: pass --instance or set ARCHERY_INSTANCE")
+	}
 	return c.ResolveTarget(c.Instance(), wf.group)
 }
 
@@ -138,7 +153,7 @@ func sqlRowsTable(rows []client.SQLRow) ([]string, [][]any) {
 }
 
 func newWorkflowCheckCmd(wf *workflowFlags) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "run archery's SQL audit without creating a workflow",
 		Args:  cobra.NoArgs,
@@ -183,6 +198,8 @@ func newWorkflowCheckCmd(wf *workflowFlags) *cobra.Command {
 			return nil
 		},
 	}
+	wf.addTargetFlags(cmd, true)
+	return cmd
 }
 
 func newWorkflowSubmitCmd(wf *workflowFlags) *cobra.Command {
@@ -244,6 +261,7 @@ func newWorkflowSubmitCmd(wf *workflowFlags) *cobra.Command {
 	f.StringVar(&demandURL, "demand-url", "", "link to the ticket this change comes from")
 	f.StringVar(&runDateStart, "run-date-start", "", "start of the executable window (YYYY-MM-DD HH:MM:SS)")
 	f.StringVar(&runDateEnd, "run-date-end", "", "end of the executable window (YYYY-MM-DD HH:MM:SS)")
+	wf.addTargetFlags(cmd, true)
 	return cmd
 }
 
@@ -316,6 +334,8 @@ func newWorkflowListCmd(wf *workflowFlags) *cobra.Command {
 	f.StringVar(&search, "search", "", "search workflow names")
 	f.IntVar(&limit, "limit", 20, "page size")
 	f.IntVar(&offset, "offset", 0, "page offset")
+	// list filters by instance or group, but never reads a statement.
+	wf.addTargetFlags(cmd, false)
 	return cmd
 }
 

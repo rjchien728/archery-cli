@@ -47,9 +47,10 @@ func (c *Config) Validate() error {
 	if c.Endpoint == "" {
 		missing = append(missing, "ARCHERY_URL")
 	}
-	if c.Instance == "" {
-		missing = append(missing, "ARCHERY_INSTANCE")
-	}
+	// Instance is not required here: the workflow commands addressed by a
+	// workflow id (approve, cancel, execute, show, log, status) never resolve an
+	// instance, so demanding one would fail them for no reason. Paths that do
+	// need it call RequireInstance.
 	if c.Username == "" {
 		missing = append(missing, "ARCHERY_USERNAME")
 	}
@@ -58,10 +59,19 @@ func (c *Config) Validate() error {
 	// prompt. It is obtained lazily in client.Login when a login is actually
 	// needed (see client.WithPasswordFunc).
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required config: %s\n\nExample:\n  export ARCHERY_URL=https://archery.example.com\n  export ARCHERY_INSTANCE=my-instance\n  export ARCHERY_USERNAME=alice\n  export ARCHERY_PASSWORD=secret",
+		return fmt.Errorf("missing required config: %s\n\nExample:\n  export ARCHERY_URL=https://archery.example.com\n  export ARCHERY_INSTANCE=my-instance\n  export ARCHERY_USERNAME=alice\n  export ARCHERY_PASSWORD=secret   # optional: prompted on /dev/tty when a login is needed",
 			strings.Join(missing, ", "))
 	}
 	c.Endpoint = strings.TrimRight(c.Endpoint, "/")
+	return nil
+}
+
+// RequireInstance reports a missing instance in the same shape as Validate. The
+// query path and the workflow commands that name a target need one.
+func (c *Config) RequireInstance() error {
+	if c.Instance == "" {
+		return fmt.Errorf("missing required config: ARCHERY_INSTANCE\n\nExample:\n  export ARCHERY_INSTANCE=my-instance")
+	}
 	return nil
 }
 
