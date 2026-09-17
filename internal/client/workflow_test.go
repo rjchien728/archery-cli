@@ -299,6 +299,27 @@ func TestCheckDecodesRows(t *testing.T) {
 	assert.Equal(t, 2, got.SyntaxType)
 }
 
+// archery types execute_time inconsistently: a number on a statement it accepted,
+// "" on one it rejected. Both must decode, and the rejected shape matters most —
+// it carries the reason the audit failed. Body captured from the live instance.
+func TestCheckDecodesRejectedRow(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"is_execute":false,"warning_count":0,"error_count":1,"is_critical":false,
+			"syntax_type":2,"rows":[{"id":1,"stage":"","errlevel":2,"stagestatus":"驳回不支持语句",
+			"errormessage":"仅支持DML和DDL语句，查询语句请使用SQL查询功能！","sql":"SELECT 1;",
+			"affected_rows":0,"sequence":"","backup_dbname":"","execute_time":"","sqlsha1":"",
+			"backup_time":"","actual_affected_rows":""}]}`)
+	})
+	got, err := c.Check(20, "db_x", "SELECT 1;")
+	require.NoError(t, err, "a rejected statement must decode, not fail at the type")
+	assert.Equal(t, 1, got.ErrorCount)
+	require.Len(t, got.Rows, 1)
+	assert.Equal(t, "驳回不支持语句", got.Rows[0].StageStatus)
+	assert.Equal(t, 2, got.Rows[0].ErrLevel)
+	assert.Contains(t, got.Rows[0].ErrorMessage, "仅支持DML和DDL语句")
+	assert.Equal(t, "", got.Rows[0].ExecuteTime)
+}
+
 func TestSubmitSendsNestedPayload(t *testing.T) {
 	var body map[string]any
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {

@@ -111,6 +111,15 @@ func TestCheckCommandExitCodeOnAuditResult(t *testing.T) {
 		{desc: "errors fail", body: `{"error_count":1,"warning_count":0,"is_critical":false,"rows":[]}`, wantErr: true},
 		{desc: "is_critical fails", body: `{"error_count":0,"warning_count":0,"is_critical":true,"rows":[]}`, wantErr: true},
 		{desc: "warnings alone pass", body: `{"error_count":0,"warning_count":2,"is_critical":false,"rows":[]}`, wantErr: false},
+		{
+			// The shape archery actually returns when it rejects a statement:
+			// execute_time is "" here but a number on accepted ones.
+			desc: "a rejected statement fails, and its row still renders",
+			body: `{"error_count":1,"warning_count":0,"is_critical":false,"rows":[{"id":1,"errlevel":2,
+				"stagestatus":"驳回不支持语句","errormessage":"仅支持DML和DDL语句，查询语句请使用SQL查询功能！",
+				"sql":"SELECT 1;","affected_rows":0,"execute_time":"","actual_affected_rows":""}]}`,
+			wantErr: true,
+		},
 		{desc: "clean audit passes", body: `{"error_count":0,"warning_count":0,"is_critical":false,"rows":[]}`, wantErr: false},
 	}
 	for _, tt := range tests {

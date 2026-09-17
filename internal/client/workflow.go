@@ -19,19 +19,21 @@ const WorkflowTypeSQLReview = 2
 // SQLRow is one statement inside a workflow, as returned by both sqlcheck (audit
 // stage) and detail_content (execution stage).
 //
-// ActualAffectedRows is any because archery returns "" for it before execution
-// and a number after.
+// ExecuteTime and ActualAffectedRows are any because archery types them
+// inconsistently: a statement it accepted carries execute_time as a number, one
+// it rejected carries "" — decoding either into a float64 fails on the other,
+// and the rejected case is exactly when the caller needs to read the row.
 type SQLRow struct {
-	ID                 int     `json:"id"`
-	Stage              string  `json:"stage"`
-	ErrLevel           int     `json:"errlevel"`
-	StageStatus        string  `json:"stagestatus"`
-	ErrorMessage       string  `json:"errormessage"`
-	SQL                string  `json:"sql"`
-	AffectedRows       int     `json:"affected_rows"`
-	ExecuteTime        float64 `json:"execute_time"`
-	BackupDBName       string  `json:"backup_dbname"`
-	ActualAffectedRows any     `json:"actual_affected_rows"`
+	ID                 int    `json:"id"`
+	Stage              string `json:"stage"`
+	ErrLevel           int    `json:"errlevel"`
+	StageStatus        string `json:"stagestatus"`
+	ErrorMessage       string `json:"errormessage"`
+	SQL                string `json:"sql"`
+	AffectedRows       int    `json:"affected_rows"`
+	ExecuteTime        any    `json:"execute_time"`
+	BackupDBName       string `json:"backup_dbname"`
+	ActualAffectedRows any    `json:"actual_affected_rows"`
 }
 
 // CheckResult is the response of /api/v1/workflow/sqlcheck/.
