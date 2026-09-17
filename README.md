@@ -143,18 +143,18 @@ web UI — chaining them is left to you.
 
 ```bash
 # audit a statement without creating anything
-archery workflow check --instance chat-nonprod -d chat-dev \
-  -c "UPDATE users SET status='active' WHERE id='u_1';"
+archery workflow check --instance mysql-staging -d mydb \
+  -c "UPDATE users SET status = 'active' WHERE id = 42;"
 
-# create the workflow (lands in manual review)
-archery workflow submit --instance chat-nonprod -d chat-dev \
-  --name 'reactivate u_1' -c "UPDATE users SET status='active' WHERE id='u_1';"
+# create the workflow — it lands in manual review and prints its id (say, 900)
+archery workflow submit --instance mysql-staging -d mydb \
+  --name 'reactivate user 42' -c "UPDATE users SET status = 'active' WHERE id = 42;"
 
-# review it, then run it — approving does not execute
+# drive it by that id — approving does not execute, so run it as a separate step
 archery workflow approve 900 --remark 'checked'
 archery workflow execute 900
-archery workflow status 900        # workflow_finish
-archery workflow show 900          # per-statement result
+archery workflow status  900        # workflow_finish
+archery workflow show    900        # per-statement result
 ```
 
 `--instance` and `--group` accept a name or a numeric id. Given a name, archery-cli
@@ -167,9 +167,11 @@ blank one, so `--remark` is optional here. Leaving it out tells whoever reads th
 workflow later nothing about why it died.
 
 ```bash
+# cancel a different workflow (e.g. a colleague's) — note the id differs from 900 above
 archery workflow cancel 901 --remark 'wrong target database'
+
 archery workflow list --status workflow_manreviewing   # what is waiting for review
-archery workflow log 900                               # who did what, when
+archery workflow log 900                               # audit trail of the 900 above
 ```
 
 What you may approve is decided by archery, not by this CLI: if your account is not
