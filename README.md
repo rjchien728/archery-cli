@@ -14,14 +14,12 @@ A `psql`-style command line client for [Archery](https://github.com/hhyo/Archery
 Archery's web UI is great for ad-hoc one-off queries, but painful for anything you want to script, pipe, diff, or hand to an AI. This CLI wraps Archery's HTTP API behind a familiar interface so both you and your AI tools can query your databases from the shell — replacing the "open Archery → copy rows → paste into ChatGPT" loop:
 
 ```bash
-archery mydb -c 'SELECT count(*) FROM orders WHERE created_at > now() - interval 7 day'
 archery mydb -c 'SELECT * FROM users LIMIT 10' --csv > users.csv
-echo 'SELECT version()' | archery mydb
-archery mydb -c '\dt'
-archery mydb -c '\d orders'
 ```
 
-Only `SELECT` is supported (Archery itself blocks DML/DDL on the `/query/` endpoint).
+Queries are read-only — Archery blocks DML/DDL on the query endpoint. Changing data
+goes through its review workflow instead, which `archery workflow` drives from the
+same shell (see [Submit and review SQL workflows](#submit-and-review-sql-workflows)).
 
 ## Install
 
@@ -46,9 +44,9 @@ Set these environment variables (typically in your shell profile or a `.env`):
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ARCHERY_URL` | yes | Base URL, e.g. `https://archery.example.com` |
-| `ARCHERY_INSTANCE` | yes | Instance name as configured in Archery |
+| `ARCHERY_INSTANCE` | for queries | The database server to talk to. Archery calls each registered server an *instance*; you will find its name in the instance dropdown on Archery's SQL query or SQL workflow page. |
 | `ARCHERY_USERNAME` | yes | Login username |
-| `ARCHERY_PASSWORD` | yes* | Login password. *If unset, `archery` prompts on `/dev/tty` (works even when stdin is piped). Required when running in non-interactive contexts (CI, containers). |
+| `ARCHERY_PASSWORD` | when logging in | Login password. If unset, `archery` prompts on `/dev/tty` (works even when stdin is piped), and only when it actually has to log in — a cached session never prompts. Set it in non-interactive contexts (CI, containers). |
 | `ARCHERY_ALIASES` | no | Comma-separated `short=full` pairs, e.g. `prod=db_orders_prod,stg=db_orders_stg` |
 | `ARCHERY_INSECURE` | no | `1`/`true` to skip TLS certificate verification (unsafe — MITM risk) |
 | `ARCHERY_CACERT` | no | Path to a PEM file with extra trusted CA certificates (for internal/private CAs) |
@@ -56,13 +54,6 @@ Set these environment variables (typically in your shell profile or a `.env`):
 Flags override env: `--endpoint`, `--instance`, `--username`, `--insecure`/`-k`, `--cacert`. There is no `--password` flag by design — credentials never go through argv where they'd appear in `ps` and shell history.
 
 The first time you run `archery`, it logs in via Archery's standard Django session flow and caches cookies at `~/.cache/archery/cookies.json` (mode `0600`). Subsequent calls reuse the session; if it expires, the CLI re-logs in transparently.
-
----
-
-👉 **Want your AI to query your DB?** See [AI Integration](#ai-integration) — drop in one skill file and you're done.
-👉 **Want to run queries yourself from the terminal?** See [Manual Usage](#manual-usage).
-
----
 
 ## AI Integration
 
@@ -137,42 +128,96 @@ archery prod -c 'SELECT count(*) FROM orders'
 
 ### Submit and review SQL workflows
 
-Queries are read-only. Writes go through archery's SQL review flow instead: submit a
+Queries are read-only. Writes go through archery's review flow instead: submit a
 workflow, approve it, then execute it. Each command maps to one action in archery's
 web UI — chaining them is left to you.
 
-```bash
-# audit a statement without creating anything
-archery workflow check --instance mysql-staging -d mydb \
-  -c "UPDATE users SET status = 'active' WHERE id = 42;"
+Audit a statement first. `check` creates nothing, and exits non-zero when archery
+rejects the statement, so it works as a gate:
 
-# create the workflow — it lands in manual review and prints its id (say, 900)
-archery workflow submit --instance mysql-staging -d mydb \
-  --name 'reactivate user 42' -c "UPDATE users SET status = 'active' WHERE id = 42;"
-
-# drive it by that id — approving does not execute, so run it as a separate step
-archery workflow approve 900 --remark 'checked'
-archery workflow execute 900
-archery workflow status  900        # workflow_finish
-archery workflow show    900        # per-statement result
+```console
+$ archery workflow check --instance mysql-staging -d mydb \
+    -c "UPDATE users SET status = 'active' WHERE id = 42;"
+ id | stage_status    | affected_rows | actual_affected_rows | execute_time | error_message | sql                                              
+----+-----------------+---------------+----------------------+--------------+---------------+--------------------------------------------------
+ 1  | Audit completed | 1             |                      | 0            | None          | UPDATE users SET status = 'active' WHERE id = 42 
+(1 row)
 ```
 
-`--instance` and `--group` accept a name or a numeric id. Given a name, archery-cli
-finds the group that holds the instance; an instance present in several groups is an
-error rather than a guess. Passing ids skips the lookup entirely.
+Submitting prints the workflow id you drive everything else with:
+
+```console
+$ archery workflow submit --instance mysql-staging -d mydb \
+    --name 'reactivate user 42' -c "UPDATE users SET status = 'active' WHERE id = 42;"
+ workflow_id | status                | group | db   | audit_auth_groups 
+-------------+-----------------------+-------+------+-------------------
+ 900         | workflow_manreviewing | dba   | mydb | dba-review        
+(1 row)
+```
+
+Approving does not run it — execution is a separate step, as in the UI:
+
+```console
+$ archery workflow approve 900 --remark 'checked'
+ workflow_id | action  
+-------------+---------
+ 900         | approve 
+(1 row)
+
+$ archery workflow execute 900
+ workflow_id | action  
+-------------+---------
+ 900         | execute 
+(1 row)
+
+$ archery workflow status 900
+ workflow_id | status          
+-------------+-----------------
+ 900         | workflow_finish 
+(1 row)
+```
+
+`show` reports what each statement actually did, `log` who did what:
+
+```console
+$ archery workflow show 900
+ id | stage_status         | affected_rows | actual_affected_rows | execute_time | error_message | sql                                              
+----+----------------------+---------------+----------------------+--------------+---------------+--------------------------------------------------
+ 1  | Execute Successfully | 1             | 1                    | 0.0031       | None          | UPDATE users SET status = 'active' WHERE id = 42 
+(1 row)
+
+$ archery workflow log 900
+ operation_time      | operation_type | operator | operation_info                 
+---------------------+----------------+----------+--------------------------------
+ 2026-09-08 11:42:08 | execute        | alice    | finished normally              
+ 2026-09-08 11:41:55 | approve        | alice    | remark: checked                
+ 2026-09-08 10:15:03 | submit         | roger    | waiting for review: dba-review 
+(3 rows)
+```
 
 Rejecting someone else's workflow, or abandoning your own, is `cancel`. Archery's
 web UI asks for a reason before enabling the button, but the endpoint accepts a
-blank one, so `--remark` is optional here. Leaving it out tells whoever reads the
-workflow later nothing about why it died.
+blank one, so `--remark` is optional here:
 
-```bash
-# cancel a different workflow (e.g. a colleague's) — note the id differs from 900 above
-archery workflow cancel 901 --remark 'wrong target database'
+```console
+$ archery workflow list --status workflow_manreviewing
+ id  | workflow_name    | status                | engineer | group | instance      | db   | create_time         
+-----+------------------+-----------------------+----------+-------+---------------+------+---------------------
+ 214 | drop stale index | workflow_manreviewing | alice    | dba   | mysql-staging | mydb | 2026-09-08 09:30:12 
+(1 row)
 
-archery workflow list --status workflow_manreviewing   # what is waiting for review
-archery workflow log 900                               # audit trail of the 900 above
+$ archery workflow cancel 214 --remark 'wrong target database'
+ workflow_id | action 
+-------------+--------
+ 214         | cancel 
+(1 row)
 ```
+
+`--instance` and `--group` accept a name or a numeric id. A *group* is how archery
+partitions permissions — each instance belongs to one, and you will find both names
+in the dropdowns on its SQL workflow page. Given a name, archery-cli finds the group
+that holds the instance, so `--group` is only needed when an instance appears in
+several of them; passing ids skips the lookup entirely.
 
 What you may approve is decided by archery, not by this CLI: if your account is not
 in the workflow's audit group, `approve` fails with archery's own message.
@@ -202,11 +247,14 @@ Meta commands (passed via -c):
 
 ```
 archery workflow check    -d <db> ( -c <sql> | -f <file> )
+                          [--instance <name|id>] [--group <name|id>]
 archery workflow submit   -d <db> --name <title> ( -c <sql> | -f <file> )
+                          [--instance <name|id>] [--group <name|id>]
                           [--backup] [--demand-url <url>]
                           [--run-date-start <ts>] [--run-date-end <ts>]
-archery workflow list     [--status <s>] [--syntax-type <n>] [--search <q>]
-                          [--since <date>] [--until <date>]
+archery workflow list     [--instance <name|id>] [--group <name|id>]
+                          [--status <s>] [--syntax-type <n>]   # 1=DDL, 2=DML
+                          [--search <q>] [--since <date>] [--until <date>]
                           [--limit <n>] [--offset <n>]
 archery workflow show     <workflow-id>
 archery workflow log      <workflow-id>
@@ -216,8 +264,11 @@ archery workflow execute  <workflow-id> [--mode auto|manual]
 archery workflow status   <workflow-id>
 
 Shared by every workflow subcommand:
-  [--instance <name|id>]  [--group <name|id>]
-  [--csv | --json | -x]   [--max-col-width <n>]  [-v]
+  [--endpoint <url>] [--username <name>] [--insecure | -k] [--cacert <file>]
+  [--csv | --json | -x]  [--max-col-width <n>]  [-v]
+
+The commands addressed by a workflow id take no --instance: the workflow already
+knows where it runs.
 ```
 
 A database literally named `workflow` has to be passed as `-d workflow`, since the
