@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -35,6 +37,12 @@ type Client struct {
 	endpoint   *url.URL
 	cookiePath string
 	verbose    io.Writer
+
+	// Resolved for the life of the Client: archery exposes no API for the
+	// group list, so re-deriving it per call would mean re-scraping a page.
+	mu        sync.Mutex
+	groups    []GroupRef
+	instances map[string][]InstanceRef
 }
 
 type Option func(*Client)
@@ -178,28 +186,39 @@ func (c *Client) verbosef(format string, args ...any) {
 	}
 }
 
-// reqSpec describes one HTTP call.
+// reqSpec describes one HTTP call. form and jsonBody are mutually exclusive;
+// jsonBody wins if both are set.
 type reqSpec struct {
 	method    string
 	path      string
 	query     url.Values
 	form      url.Values
+	jsonBody  []byte
 	autoLogin bool
 }
 
-func (c *Client) request(rs reqSpec) (status int, body []byte, err error) {
+// response is one HTTP exchange. location carries the Location header: archery's
+// Django form views (/passed/, /cancel/, /execute/) signal success with a 302 to
+// /detail/<id>/ and failure with a 200 carrying an error page.
+type response struct {
+	status   int
+	body     []byte
+	location string
+}
+
+func (c *Client) request(rs reqSpec) (*response, error) {
 	const maxAttempts = 2
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		req, rerr := c.buildRequest(rs)
 		if rerr != nil {
-			return 0, nil, rerr
+			return nil, rerr
 		}
 		started := time.Now()
 		resp, herr := c.httpc.Do(req)
 		if herr != nil {
-			return 0, nil, fmt.Errorf("network error: %w (is HTTPS_PROXY set / viaproxy used?)", herr)
+			return nil, fmt.Errorf("network error: %w (is HTTPS_PROXY set / viaproxy used?)", herr)
 		}
-		body, _ = io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		c.saveCookies()
 		c.verbosef("%s %s -> %d (%s, %d bytes)", rs.method, rs.path, resp.StatusCode, time.Since(started).Truncate(time.Millisecond), len(body))
@@ -207,13 +226,13 @@ func (c *Client) request(rs reqSpec) (status int, body []byte, err error) {
 		if rs.autoLogin && attempt == 0 && needsLogin(resp) {
 			c.verbosef("session expired, logging in")
 			if err := c.Login(); err != nil {
-				return 0, nil, err
+				return nil, err
 			}
 			continue
 		}
-		return resp.StatusCode, body, nil
+		return &response{status: resp.StatusCode, body: body, location: resp.Header.Get("Location")}, nil
 	}
-	return 0, nil, errors.New("request: exceeded retries")
+	return nil, errors.New("request: exceeded retries")
 }
 
 func (c *Client) buildRequest(rs reqSpec) (*http.Request, error) {
@@ -223,14 +242,20 @@ func (c *Client) buildRequest(rs reqSpec) (*http.Request, error) {
 		u.RawQuery = rs.query.Encode()
 	}
 	var body io.Reader
-	if rs.form != nil {
+	switch {
+	case rs.jsonBody != nil:
+		body = bytes.NewReader(rs.jsonBody)
+	case rs.form != nil:
 		body = strings.NewReader(rs.form.Encode())
 	}
 	req, err := http.NewRequest(rs.method, u.String(), body)
 	if err != nil {
 		return nil, err
 	}
-	if rs.form != nil {
+	switch {
+	case rs.jsonBody != nil:
+		req.Header.Set("Content-Type", "application/json")
+	case rs.form != nil:
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	}
 	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")

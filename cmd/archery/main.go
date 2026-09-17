@@ -80,34 +80,9 @@ Meta commands (passed via -c):
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := resolveConfig(endpointFlag, instanceFlag, usernameFlag, cacertFlag, insecureFlag)
 			if err != nil {
 				return err
-			}
-			if endpointFlag != "" {
-				cfg.Endpoint = endpointFlag
-			}
-			if instanceFlag != "" {
-				cfg.Instance = instanceFlag
-			}
-			if usernameFlag != "" {
-				cfg.Username = usernameFlag
-			}
-			if insecureFlag {
-				cfg.Insecure = true
-			}
-			if cacertFlag != "" {
-				cfg.CACertPath = cacertFlag
-			}
-			if cfg.Password == "" {
-				pw, err := readPasswordTTY("Archery password: ")
-				if err != nil {
-					return err
-				}
-				cfg.Password = pw
-			}
-			if err := cfg.Validate(); err != nil {
-				return usageError(err.Error())
 			}
 
 			var dbInput string
@@ -197,10 +172,47 @@ Meta commands (passed via -c):
 	f.BoolVarP(&insecureFlag, "insecure", "k", false, "skip TLS certificate verification (unsafe; for MITM-free internal networks only)")
 	f.StringVar(&cacertFlag, "cacert", "", "path to PEM file with extra trusted CA certificates")
 
+	rootCmd.AddCommand(newWorkflowCmd())
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "archery: "+err.Error())
 		os.Exit(exitCodeFor(err))
 	}
+}
+
+// resolveConfig layers flag overrides onto the environment and prompts for a
+// password when one is not set, so every command reaches archery the same way.
+func resolveConfig(endpoint, instance, username, cacert string, insecure bool) (*config.Config, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if endpoint != "" {
+		cfg.Endpoint = endpoint
+	}
+	if instance != "" {
+		cfg.Instance = instance
+	}
+	if username != "" {
+		cfg.Username = username
+	}
+	if insecure {
+		cfg.Insecure = true
+	}
+	if cacert != "" {
+		cfg.CACertPath = cacert
+	}
+	if cfg.Password == "" {
+		pw, err := readPasswordTTY("Archery password: ")
+		if err != nil {
+			return nil, err
+		}
+		cfg.Password = pw
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, usageError(err.Error())
+	}
+	return cfg, nil
 }
 
 func readPasswordTTY(prompt string) (string, error) {

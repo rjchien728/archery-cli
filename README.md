@@ -135,6 +135,46 @@ export ARCHERY_ALIASES=prod=db_orders_prod,stg=db_orders_stg
 archery prod -c 'SELECT count(*) FROM orders'
 ```
 
+### Submit and review SQL workflows
+
+Queries are read-only. Writes go through archery's SQL review flow instead: submit a
+workflow, approve it, then execute it. Each command maps to one action in archery's
+web UI — chaining them is left to you.
+
+```bash
+# audit a statement without creating anything
+archery workflow check --instance chat-nonprod -d chat-dev \
+  -c "UPDATE users SET status='active' WHERE id='u_1';"
+
+# create the workflow (lands in manual review)
+archery workflow submit --instance chat-nonprod -d chat-dev \
+  --name 'reactivate u_1' -c "UPDATE users SET status='active' WHERE id='u_1';"
+
+# review it, then run it — approving does not execute
+archery workflow approve 900 --remark 'checked'
+archery workflow execute 900
+archery workflow status 900        # workflow_finish
+archery workflow show 900          # per-statement result
+```
+
+`--instance` and `--group` accept a name or a numeric id. Given a name, archery-cli
+finds the group that holds the instance; an instance present in several groups is an
+error rather than a guess. Passing ids skips the lookup entirely.
+
+Rejecting someone else's workflow, or abandoning your own, is `cancel`. Archery's
+web UI asks for a reason before enabling the button, but the endpoint accepts a
+blank one, so `--remark` is optional here. Leaving it out tells whoever reads the
+workflow later nothing about why it died.
+
+```bash
+archery workflow cancel 901 --remark 'wrong target database'
+archery workflow list --status workflow_manreviewing   # what is waiting for review
+archery workflow log 900                               # who did what, when
+```
+
+What you may approve is decided by archery, not by this CLI: if your account is not
+in the workflow's audit group, `approve` fails with archery's own message.
+
 ## Reference
 
 ```
@@ -157,6 +197,32 @@ Meta commands (passed via -c):
 ```
 
 `<db>` may be either a configured alias or a full database name; aliases are resolved transparently.
+
+```
+archery workflow check    -d <db> ( -c <sql> | -f <file> )
+archery workflow submit   -d <db> --name <title> ( -c <sql> | -f <file> )
+                          [--backup] [--demand-url <url>]
+                          [--run-date-start <ts>] [--run-date-end <ts>]
+archery workflow list     [--status <s>] [--syntax-type <n>] [--search <q>]
+                          [--since <date>] [--until <date>]
+                          [--limit <n>] [--offset <n>]
+archery workflow show     <workflow-id>
+archery workflow log      <workflow-id>
+archery workflow approve  <workflow-id> [--remark <text>]
+archery workflow cancel   <workflow-id> [--remark <text>]
+archery workflow execute  <workflow-id> [--mode auto|manual]
+archery workflow status   <workflow-id>
+
+Shared by every workflow subcommand:
+  [--instance <name|id>]  [--group <name|id>]
+  [--csv | --json | -x]   [--max-col-width <n>]  [-v]
+```
+
+A database literally named `workflow` has to be passed as `-d workflow`, since the
+bare word selects the subcommand.
+
+`workflow list --limit` pages the workflow list. It is unrelated to the root
+command's `-L/--limit`, which caps the rows a query returns.
 
 ## Proxy
 

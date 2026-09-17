@@ -56,7 +56,7 @@ func (c *Client) Query(db, schema, sql string, limit int) (*QueryResult, error) 
 		"sql_content":   {sql},
 		"limit_num":     {strconv.Itoa(limit)},
 	}
-	status, body, err := c.request(reqSpec{
+	res, err := c.request(reqSpec{
 		method:    "POST",
 		path:      "/query/",
 		form:      form,
@@ -65,15 +65,15 @@ func (c *Client) Query(db, schema, sql string, limit int) (*QueryResult, error) 
 	if err != nil {
 		return nil, err
 	}
-	if status >= 500 {
-		return nil, fmt.Errorf("archery server error HTTP %d", status)
+	if res.status >= 500 {
+		return nil, fmt.Errorf("archery server error HTTP %d", res.status)
 	}
-	if status >= 400 {
-		return nil, fmt.Errorf("archery HTTP %d: %s", status, snippet(body))
+	if res.status >= 400 {
+		return nil, fmt.Errorf("archery HTTP %d: %s", res.status, snippet(res.body))
 	}
 	var env queryEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode query response: %w (body: %s)", err, snippet(body))
+	if err := json.Unmarshal(res.body, &env); err != nil {
+		return nil, fmt.Errorf("decode query response: %w (body: %s)", err, snippet(res.body))
 	}
 	if env.Status != 0 {
 		return nil, &ServerError{Status: env.Status, Msg: env.Msg}
@@ -110,7 +110,7 @@ func (c *Client) InstanceResource(rt ResourceType, db, schema, table string) ([]
 	if table != "" {
 		q.Set("tb_name", table)
 	}
-	status, body, err := c.request(reqSpec{
+	res, err := c.request(reqSpec{
 		method:    "GET",
 		path:      "/instance/instance_resource/",
 		query:     q,
@@ -119,15 +119,15 @@ func (c *Client) InstanceResource(rt ResourceType, db, schema, table string) ([]
 	if err != nil {
 		return nil, err
 	}
-	if status >= 500 {
-		return nil, fmt.Errorf("archery server error HTTP %d", status)
+	if res.status >= 500 {
+		return nil, fmt.Errorf("archery server error HTTP %d", res.status)
 	}
-	if status >= 400 {
-		return nil, fmt.Errorf("archery HTTP %d: %s", status, snippet(body))
+	if res.status >= 400 {
+		return nil, fmt.Errorf("archery HTTP %d: %s", res.status, snippet(res.body))
 	}
 	var env listEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode resource response: %w (body: %s)", err, snippet(body))
+	if err := json.Unmarshal(res.body, &env); err != nil {
+		return nil, fmt.Errorf("decode resource response: %w (body: %s)", err, snippet(res.body))
 	}
 	if env.Status != 0 {
 		return nil, &ServerError{Status: env.Status, Msg: env.Msg}

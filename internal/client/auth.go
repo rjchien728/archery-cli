@@ -17,7 +17,7 @@ import (
 //     server sets a sessionid cookie.
 func (c *Client) Login() error {
 	c.verbosef("login start")
-	if _, _, err := c.request(reqSpec{
+	if _, err := c.request(reqSpec{
 		method:    "GET",
 		path:      "/login/",
 		autoLogin: false,
@@ -32,7 +32,7 @@ func (c *Client) Login() error {
 		"username": {c.cfg.Username},
 		"password": {c.cfg.Password},
 	}
-	status, body, err := c.request(reqSpec{
+	res, err := c.request(reqSpec{
 		method:    "POST",
 		path:      "/authenticate/",
 		form:      form,
@@ -41,19 +41,19 @@ func (c *Client) Login() error {
 	if err != nil {
 		return fmt.Errorf("login: POST /authenticate/: %w", err)
 	}
-	if status >= 500 {
-		return fmt.Errorf("login: archery server error HTTP %d", status)
+	if res.status >= 500 {
+		return fmt.Errorf("login: archery server error HTTP %d", res.status)
 	}
-	if status >= 400 {
-		return fmt.Errorf("login: HTTP %d: %s", status, snippet(body))
+	if res.status >= 400 {
+		return fmt.Errorf("login: HTTP %d: %s", res.status, snippet(res.body))
 	}
 
 	var env struct {
 		Status int    `json:"status"`
 		Msg    string `json:"msg"`
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return fmt.Errorf("login: decode /authenticate/ response: %w (body: %s)", err, snippet(body))
+	if err := json.Unmarshal(res.body, &env); err != nil {
+		return fmt.Errorf("login: decode /authenticate/ response: %w (body: %s)", err, snippet(res.body))
 	}
 	if env.Status != 0 {
 		// Don't echo the password; surface server's message verbatim (typically
